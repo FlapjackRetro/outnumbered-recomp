@@ -54,6 +54,49 @@ static jmp_buf g_exit_jmp;
 static int g_trace;
 static char g_game_dir[260] = ".";
 static FILE *g_files[MAX_FILES];
+static int g_is_tmpl[MAX_FILES];                 /* handle reads TEMPLATE.GRA (puzzle code modules) */
+
+/* ---------- puzzle modules loaded from TEMPLATE.GRA ----------
+ * The game reads a code module from TEMPLATE.GRA into a free segment and far-calls it.
+ * Each read is remembered (where it landed, which file offset it came from) so a call
+ * into that memory can run the module function lifted from that file offset. */
+#define MAX_TREG 32
+static struct { uint32_t lin, len, foff; } g_treg[MAX_TREG];
+static int g_ntreg;
+static void treg_add(uint32_t lin, uint32_t len, uint32_t foff)
+{
+    for (int i = 0; i < g_ntreg; i++)                      /* drop regions this read overwrites */
+        if (g_treg[i].lin < lin + len && lin < g_treg[i].lin + g_treg[i].len) { g_treg[i] = g_treg[--g_ntreg]; i--; }
+    if (g_ntreg < MAX_TREG) { g_treg[g_ntreg].lin = lin; g_treg[g_ntreg].len = len; g_treg[g_ntreg].foff = foff; g_ntreg++; }
+}
+static uint32_t g_tmiss[256]; static int g_ntmiss;
+int recomp_dispatch_tm(CPU *cpu, unsigned foff);          /* generated (gen/tmpl_000.c) */
+int recomp_module_dispatch(CPU *cpu, unsigned seg, unsigned off)
+{
+    uint32_t a = (((uint32_t)seg << 4) + off) & 0xFFFFF;
+    for (int i = 0; i < g_ntreg; i++) if (a >= g_treg[i].lin && a < g_treg[i].lin + g_treg[i].len) {
+        uint32_t foff = g_treg[i].foff + (a - g_treg[i].lin);
+        uint16_t save = cpu->cs;
+        cpu->cs = (uint16_t)seg;
+        if (recomp_dispatch_tm(cpu, foff)) { cpu->cs = save; return 1; }
+        cpu->cs = save;
+        int seen = 0; for (int k = 0; k < g_ntmiss; k++) seen |= g_tmiss[k] == foff;
+        if (!seen && g_ntmiss < 256) g_tmiss[g_ntmiss++] = foff;
+        fprintf(stderr, "[tmpl] no lifted module function at TEMPLATE.GRA+%05X (called %04X:%04X)\n", foff, seg, off);
+        return 0;
+    }
+    return 0;
+}
+static void tmiss_dump(const char *path)
+{
+    if (!g_ntmiss) return;
+    FILE *r = fopen(path, "r"); unsigned v; uint32_t all[512]; int n = 0;
+    if (r) { while (n < 256 && fscanf(r, "%x", &v) == 1) all[n++] = v; fclose(r); }
+    for (int i = 0; i < g_ntmiss; i++) { int seen = 0; for (int k = 0; k < n; k++) seen |= all[k] == g_tmiss[i]; if (!seen) all[n++] = g_tmiss[i]; }
+    FILE *w = fopen(path, "w"); if (!w) return;
+    for (int i = 0; i < n; i++) fprintf(w, "%05X\n", all[i]);
+    fclose(w);
+}
 static uint16_t g_dta_seg = PSP_SEG, g_dta_off = 0x80;
 static uint16_t g_vec_seg[256], g_vec_off[256];
 static uint16_t g_alloc_seg = 0x4000;      /* DOS memory above the program image */
@@ -153,6 +196,8 @@ void dos_int21(CPU *cpu)
         if (!f && cpu->ah == 0x3D && (cpu->al & 3)) f = open_game_file(name, "rb");
         int h = -1;
         if (f) for (int i = 5; i < MAX_FILES; i++) if (!g_files[i]) { g_files[i] = f; h = i; break; }
+        if (h >= 0) { const char *b = name; for (const char *q = name; *q; q++) if (*q == '\\' || *q == '/' || *q == ':') b = q + 1;
+                      g_is_tmpl[h] = !strcasecmp(b, "TEMPLATE.GRA"); }
         trace("    open \"%s\" -> %d\n", name, h);
         if (h < 0) { if (f) fclose(f); dos_fail(cpu, 2); } else { cpu->ax = (uint16_t)h; dos_ok(cpu); }
         break; }
@@ -164,7 +209,9 @@ void dos_int21(CPU *cpu)
         if (cpu->bx == 0) { cpu->ax = 0; dos_ok(cpu); break; }             /* stdin: EOF */
         if (cpu->bx >= MAX_FILES || !g_files[cpu->bx]) { dos_fail(cpu, 6); break; }
         uint32_t a = seg_off(cpu->ds, cpu->dx);
+        long at = ftell(g_files[cpu->bx]);
         size_t n = fread(&cpu->mem[a], 1, cpu->cx, g_files[cpu->bx]);
+        if (g_is_tmpl[cpu->bx] && n) treg_add(a, (uint32_t)n, (uint32_t)at);
         if (n != cpu->cx) fprintf(stderr, "[21] SHORT READ h=%u want=%u got=%zu\n", cpu->bx, cpu->cx, n);
         cpu->ax = (uint16_t)n; dos_ok(cpu); break; }
     case 0x40: {
@@ -310,7 +357,18 @@ void int_handler(CPU *cpu, int vec)
     case 0x21: dos_int21(cpu); break;
     case 0x33: mouse_int33(cpu); break;
     case 0x02: case 0x03: break;                                     /* NMI / breakpoint: ignore */
-    default: fprintf(stderr, "[INT %02X] UNIMPLEMENTED ax=%04X\n", vec, cpu->ax);
+    default:
+        if (g_vec_seg[vec] != BIOS_SEG) {          /* a vector the game installed (INT 60h: the puzzle modules' call-back) */
+            uint16_t cs = cpu->cs;
+            push16(cpu, cpu->flags); push16(cpu, cs); push16(cpu, 0xFFFF);
+            cpu->flags &= (uint16_t)~FLAG_IF;
+            int ok = recomp_dispatch(cpu, g_vec_seg[vec], g_vec_off[vec]);
+            cpu->sp += 6;                          /* lifted iret returns without popping its frame */
+            cpu->cs = cs;
+            if (!ok) fprintf(stderr, "[INT %02X] handler %04X:%04X not lifted\n", vec, g_vec_seg[vec], g_vec_off[vec]);
+            break;
+        }
+        fprintf(stderr, "[INT %02X] UNIMPLEMENTED ax=%04X\n", vec, cpu->ax);
     }
 }
 
@@ -520,8 +578,8 @@ void recomp_enter(const char *fn)
             for (int i = 1; i <= 8; i++) fprintf(stderr, " %s", ring[(rp - i + 48) % 24] ? ring[(rp - i + 48) % 24] : "-");
             fprintf(stderr, "\n"); last_ds = g_cpu->ds; if (++fired > 40) dbg = 0; }
     }
-    { static int sw = -1; static const char *rn[40]; static uint16_t rs[40]; static int rpp, shown;
-      if (sw < 0) sw = getenv("SSO_SPWATCH") ? atoi(getenv("SSO_SPWATCH")) : 0; if (getenv("SSO_BPWATCH")) sw = -1;
+    { static int sw = -2; static const char *rn[40]; static uint16_t rs[40]; static int rpp, shown;
+      if (sw == -2) { sw = getenv("SSO_SPWATCH") ? atoi(getenv("SSO_SPWATCH")) : 0; if (getenv("SSO_BPWATCH")) sw = -1; }   /* once, not per call */
       if (sw && g_cpu && shown < 3) { rn[rpp % 40] = fn; rs[rpp % 40] = g_cpu->bp; rpp++;
         if ((sw > 0 ? g_cpu->sp < sw : (g_cpu->bp == 0 && rpp > 5000)) ) { shown++; fprintf(stderr, "[spw] sp=%04X bp=%04X; stack words:", g_cpu->sp, g_cpu->bp); for (int w = 0; w < 12; w++) fprintf(stderr, " %04X", (unsigned)(g_cpu->mem[((uint32_t)g_cpu->ss<<4)+(uint16_t)(g_cpu->sp+2*w)] | (g_cpu->mem[((uint32_t)g_cpu->ss<<4)+(uint16_t)(g_cpu->sp+2*w+1)]<<8))); fprintf(stderr, "\n"); { void *bt[16]; int n = backtrace(bt, 16); backtrace_symbols_fd(bt, n, 2); } fprintf(stderr, " recent entries (oldest first):\n");
           for (int i = 40; i >= 1; i--) { int k = (rpp - i + 400) % 40; if (rn[k]) fprintf(stderr, "   %s sp=%04X\n", rn[k], rs[k]); } } } }
@@ -581,7 +639,7 @@ static void watchdog_report(void)
     audio_wav_close();
     fprintf(stderr, "\n[watchdog] time limit reached: cs=%04X ds=%04X ss:sp=%04X:%04X, %u DOS calls\n",
             g_cpu->cs, g_cpu->ds, g_cpu->ss, g_cpu->sp, g_dos_calls);
-    recomp_dump_misses("work/sso_misses.txt");
+    recomp_dump_misses("work/sso_misses.txt"); tmiss_dump("work/sso_tmisses.txt");
     { const char *o = getenv("SSO_FRAME"); if (o) ega_dump_ppm(o); }
     if (getenv("SSO_TEXT")) for (int r = 0; r < 25; r++) { char ln[81]; for (int c = 0; c < 80; c++) { uint8_t ch = g_cpu->mem[0xB8000 + (r * 80 + c) * 2]; ln[c] = ch >= 32 && ch < 127 ? (char)ch : ' '; } ln[80] = 0; fprintf(stderr, "|%s\n", ln); }
     ega_stats();
@@ -619,7 +677,7 @@ void sso_run(CPU *cpu)
     cpu->flags |= FLAG_IF;
     if (setjmp(g_exit_jmp) == 0) fn_00000(cpu);
     audio_wav_close();
-    recomp_dump_misses("work/sso_misses.txt");
+    recomp_dump_misses("work/sso_misses.txt"); tmiss_dump("work/sso_tmisses.txt");
     { const char *o = getenv("SSO_FRAME"); if (o) ega_dump_ppm(o); }
     fprintf(stderr, "[exit] code %d after %u DOS calls\n", sso_exit_code, g_dos_calls);
 }

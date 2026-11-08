@@ -325,6 +325,113 @@ class X87Lifter(Lifter):
         return super()._lift_x87(inst)
 
 
+# ---------------------------------------------------------------------------
+# Puzzle modules in TEMPLATE.GRA
+#
+# Each puzzle stand's picture is drawn by a separately compiled code module
+# stored in TEMPLATE.GRA (11 of them, each followed by its picture data). The
+# game reads one into a free segment and far-calls seg:0000; the module calls
+# back into the game through INT 60h (handler 0C9A:0002, service table at
+# DGROUP:4BF0). The modules are position independent (CS = DS = load segment),
+# so they are lifted here with no fixed code segment (lift16 reads cpu->cs) as
+# tm_<file offset>, and the runtime routes any call into a region it loaded from
+# TEMPLATE.GRA to recomp_dispatch_tm(file offset).
+MODULE_SIG = bytes.fromhex("558bec1e8cc88ed8")   # push bp/mov bp,sp/push ds/mov ax,cs/mov ds,ax
+
+
+def find_game_file(game_dir, name):
+    if game_dir and os.path.isdir(game_dir):
+        for n in os.listdir(game_dir):
+            if n.upper() == name:
+                return os.path.join(game_dir, n)
+    return None
+
+
+def lift_modules(path, feedback):
+    """Lift every code module in TEMPLATE.GRA. Returns (bodies, [(file offset, name)])."""
+    tg = open(path, "rb").read()
+    starts, i = [], tg.find(MODULE_SIG)
+    while i >= 0:
+        starts.append(i)
+        i = tg.find(MODULE_SIG, i + 1)
+    bodies, table = [], []
+    for k, S in enumerate(starts):
+        E = starts[k + 1] if k + 1 < len(starts) else min(len(tg), S + 0x2000)
+        mb = tg[S:E]
+        n = len(mb)
+
+        def fend(f, cap):
+            try:
+                insns = Decoder(mb[f:cap], base_offset=f).decode_all()
+            except Exception:
+                return None
+            reach = f
+            for ins in insns:
+                o = ins.op1
+                if ins.mnemonic.startswith(("j", "loop")) and o and o.type in (OpType.REL8, OpType.REL16):
+                    reach = max(reach, f + (o.disp & 0xFFFF))
+                if ins.mnemonic in ("ret", "retf", "ret far", "iret") and ins.offset >= reach:
+                    return ins.offset + ins.length
+            return None
+
+        work = {0} | {t - S for t in feedback if S <= t < E}
+        funcs, done = {}, set()
+        while work:
+            f = min(work)
+            work.discard(f)
+            if f in done or not (0 <= f < n):
+                continue
+            done.add(f)
+            later = [g for g in list(funcs) + list(work) if g > f]
+            cap = min([n, f + 0x1000] + later)
+            e = fend(f, cap) or cap
+            funcs[f] = e
+            try:
+                insns = Decoder(mb[f:e], base_offset=f).decode_all()
+            except Exception:
+                continue
+            for ins in insns:
+                o = ins.op1
+                if not o or o.type not in (OpType.REL8, OpType.REL16):
+                    continue
+                t = (f + o.disp) & 0xFFFF
+                if ins.mnemonic == "call" or not (f <= t < e):
+                    if 0 <= t < n and t not in done:
+                        work.add(t)
+        # a function cut short by a later start ends there
+        fs = sorted(funcs)
+        for j, f in enumerate(fs):
+            if j + 1 < len(fs) and funcs[f] > fs[j + 1]:
+                funcs[f] = fs[j + 1]
+        known = {f: f"tm_{S + f:05X}" for f in fs}
+        for f in fs:
+            e = funcs[f]
+            name = known[f]
+            try:
+                insns = Decoder(mb[f:e], base_offset=f).decode_all()
+                for ins in insns:
+                    o = ins.op1
+                    if o and o.type in (OpType.REL8, OpType.REL16):
+                        t = (f + o.disp) & 0xFFFF
+                        o.disp = t - f
+                jt, _, _, _, _ = jump_tables(mb, 0, insns, 0, f, e)
+                lifter = Lifter(hdr_size=0, known_funcs=known)
+                lifter.dispatch = True
+                lifter.far_base = 0
+                lifter.jump_tables = jt
+                lift16._CODE_SEG = None          # position independent: cs is the load segment
+                body = lifter.lift_function(name, insns, f, is_far=True)
+                stray = [c for c in lifter.func_calls if not c.startswith("tm_")]
+                if stray:
+                    body = f"/* {name}: unresolved {stray} */\n" + body
+                bodies.append(body)
+                table.append((S + f, name))
+            except Exception as ex:
+                bodies.append(f"/* {name}: lift failed: {ex} */\nvoid {name}(CPU *cpu) {{ (void)cpu; }}")
+                table.append((S + f, name))
+    return bodies, table, starts
+
+
 def main():
     exe = sys.argv[1] if len(sys.argv) > 1 else DEFAULT_EXE
     data = open(exe, "rb").read()
@@ -380,6 +487,24 @@ def main():
                     vec_tgts.add(t)         # inside an analyzer range: force a start
     except Exception:
         pass
+
+    # INT 60h: the puzzle modules' call-back into the game. The handler at
+    # 0C9A:0002 is only reached through the vector the game installs, and it
+    # far-calls through a table of services at DGROUP:4BF0; neither is visible
+    # to the call-graph analysis, so both become function starts.
+    try:
+        vec_tgts.add(0xC9A2)
+        tb_ = dg + 0x4BF0 + HDR
+        for q in range(64):
+            off_ = int.from_bytes(data[tb_ + 4 * q:tb_ + 4 * q + 2], "little")
+            seg_ = int.from_bytes(data[tb_ + 4 * q + 2:tb_ + 4 * q + 4], "little")
+            t_ = seg_ * 16 + off_
+            if not (0 < t_ < code_end - HDR):
+                break
+            vec_tgts.add(t_)
+        print(f"  INT 60h services: {q} far pointers at DGROUP:4BF0")
+    except Exception as ex:
+        print(f"  INT 60h service table not read: {ex}")
 
     funcs = [("fn_00000", 0, first_det)]
     ct = sorted(call_tgts)
@@ -868,6 +993,7 @@ void recomp_dump_misses(const char *path) {
     if (g_nmissv) dump_one(v, g_missv, &g_nmissv, 1);
 }
 /* 1 = dispatched, 0 = no function at that address */
+int recomp_module_dispatch(CPU *cpu, unsigned seg, unsigned off);
 int recomp_dispatch_v(CPU *cpu, unsigned addr);
 int recomp_dispatch(CPU *cpu, unsigned seg, unsigned off) {
     unsigned addr = ((seg << 4) + off) & 0xFFFFF;
@@ -878,8 +1004,9 @@ int recomp_dispatch(CPU *cpu, unsigned seg, unsigned off) {
         if (g_disp[mid].addr == addr) { g_disp[mid].fn(cpu); return 1; }
         if (g_disp[mid].addr < addr) lo = mid + 1; else hi = mid - 1;
     }
+    if (recomp_module_dispatch(cpu, seg, off)) return 1;      /* code loaded from TEMPLATE.GRA */
     if (g_trace < 0) g_trace = getenv("SSO_TRACE") != NULL;
-    if (addr && off < 0xFF00) note_miss(addr, 0);   /* offsets near 0xFFFF are negative-wrapped garbage */
+    if (addr && off < 0xFF00 && addr < 0x13F30) note_miss(addr, 0);   /* offsets near 0xFFFF are negative-wrapped garbage */
     if (g_trace) {
         fprintf(stderr, "[disp] MISS %04X:%04X (image %05X) ds=%04X; from:\\n", seg, off, addr, cpu->ds);
         void *bt[6]; int n = backtrace(bt, 6); backtrace_symbols_fd(bt + 1, n - 1, 2);
@@ -894,6 +1021,33 @@ void dispatch_far(CPU *cpu, unsigned seg, unsigned off)  { if (seg == 0xF000 && 
         for st in stubs:
             drop = 4 if st.startswith("far_") else 2
             f.write(f'void {st}(CPU *cpu) {{ static int n; if (n++ < 4) fprintf(stderr, "[stub] {st}\\n"); cpu->sp += {drop}; }}\n')
+
+    # TEMPLATE.GRA puzzle modules
+    game_dir = os.environ.get("SSO_GAME_DIR") or os.path.dirname(ROOT)
+    tpath = find_game_file(game_dir, "TEMPLATE.GRA")
+    tfb = set()
+    tmiss = os.path.join(ROOT, "work", "sso_tmisses.txt")
+    if os.path.exists(tmiss):
+        tfb = {int(x, 16) for x in open(tmiss).read().split()}
+    tb, tt, tstarts = lift_modules(tpath, tfb) if tpath else ([], [], [])
+    with open(os.path.join(OUT, "tmpl_000.c"), "w") as f:
+        f.write('#include "recomp_all.h"\n\n')
+        for _, n in tt:
+            f.write(f"void {n}(CPU *cpu);\n")
+        f.write("\n" + "\n\n".join(tb) + "\n\n")
+        f.write("typedef struct { unsigned off; void (*fn)(CPU *); } TmEnt;\n")
+        f.write(f"static const TmEnt g_tm[] = {{\n")
+        for o, n in sorted(tt):
+            f.write(f"  {{0x{o:05X}, {n}}},\n")
+        f.write("  {0xFFFFFFFFu, 0}\n};\n")
+        f.write(f"int recomp_dispatch_tm(CPU *cpu, unsigned off) {{\n"
+                f"    for (int i = 0; g_tm[i].fn; i++) if (g_tm[i].off == off) {{ g_tm[i].fn(cpu); return 1; }}\n"
+                f"    return 0;\n}}\n")
+    if tpath:
+        print(f"  TEMPLATE.GRA: {len(tstarts)} puzzle modules, {len(tt)} functions lifted "
+              f"({len(tfb)} from runtime feedback)")
+    else:
+        print("  WARNING: TEMPLATE.GRA not found (set SSO_GAME_DIR); puzzle pictures will not draw")
 
     print(f"\nlifted {lifted}/{len(funcs)} functions, {len(failed)} lift errors, "
           f"{n_wrapped} wrapped near targets, {len(stubs)} unresolved call targets")

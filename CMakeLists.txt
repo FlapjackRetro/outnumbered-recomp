@@ -10,7 +10,7 @@ if(NOT MSVC)
 endif()
 
 # gen/ is written by tools/lift_full.py (git-ignored)
-file(GLOB GENERATED CONFIGURE_DEPENDS gen/recomp_*.c gen/vga_*.c)
+file(GLOB GENERATED CONFIGURE_DEPENDS gen/recomp_*.c gen/vga_*.c gen/tmpl_*.c)
 if(NOT GENERATED)
   message(FATAL_ERROR "gen/ is empty: run tools/lift_full.py first")
 endif()
@@ -20,9 +20,15 @@ add_executable(sso src/main.c src/recomp/cpu.c src/recomp/runtime16.c src/recomp
 target_include_directories(sso PRIVATE third_party/ymfm)
 target_compile_definitions(sso PRIVATE X87_SHARED)   # one FP stack across the generated chunks
 # Optional window + keyboard (SDL2). -DSSO_SDL=OFF forces the headless build.
-option(SSO_SDL "Build the SDL2 front end when SDL2 is found" ON)
+option(SSO_SDL "Build the SDL2 front end (window, keyboard, sound). OFF = headless test build" ON)
 if(SSO_SDL)
   find_package(SDL2 QUIET)
+  if(NOT SDL2_FOUND)
+    message(FATAL_ERROR "SDL2 not found, so there would be no window.\n"
+      "  Debian/Ubuntu: sudo apt install libsdl2-dev   Fedora: sudo dnf install SDL2-devel\n"
+      "  MSYS2: pacman -S mingw-w64-x86_64-SDL2\n"
+      "  Or configure with -DSSO_SDL=OFF (tools/build.py --headless) for a headless test build.")
+  endif()
 endif()
 if(SSO_SDL AND SDL2_FOUND)
   target_sources(sso PRIVATE src/recomp/frontend_sdl.c)

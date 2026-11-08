@@ -74,6 +74,7 @@ def main():
     open(unpacked, "wb").write(unexepack.unpack(data) if unexepack.is_packed(data) else data)
     print(f"unpacked: {unpacked}")
 
+    os.environ["SSO_GAME_DIR"] = os.path.dirname(os.path.abspath(exe))   # TEMPLATE.GRA's puzzle modules
     run([sys.executable, os.path.join(ROOT, "tools", "lift_full.py"), unpacked])
 
     bdir = a.build_dir or os.path.join(ROOT, "build-dbg" if a.debug else "build")

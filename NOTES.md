@@ -60,8 +60,37 @@ Builds:
 - Play-test on Windows (window, keyboard, audio).
 - Sound: game has Sound/Music options; PC speaker path from Neptune's
   `audio.cpp` is in place, AdLib unverified for this title.
-- Audit the rest of the game (rooms, decoder, Drill for Skill, trophies) for
+- Other 10 puzzle modules are lifted but only Prize is Right is verified. Audit the
+  rest of the game (decoder, Drill for Skill, trophies) for
   dispatch misses; run `tools/converge.sh` with longer scripted sessions.
 - Leftover Neptune debug hooks in runtime16.c (`SSO_WATCHSS`, `SSO_ENTERLOG`)
   read Neptune DGROUP offsets; harmless, off by default, clean up later.
 - Console window on Windows (build is a console app; handy for logs).
+
+## Puzzle pictures: code modules in TEMPLATE.GRA (fixed)
+
+Symptom: the picture box on every puzzle screen stayed black. A trace showed
+`[disp] MISS 4F45:0000` right after the game read 0x1158 bytes of
+TEMPLATE.GRA (file offset 0x1FC9) into 4F45:0000 and far-called it.
+
+- TEMPLATE.GRA holds 11 separately compiled puzzle modules (one per stand
+  type), each followed by its picture data. Each starts `push bp / mov bp,sp /
+  push ds / mov ax,cs / mov ds,ax` (CS = DS = load segment) and calls back
+  into the game with `push n / call 2Ch`, a stub that does `int 60h`.
+- INT 60h handler 0C9A:0002 (image 0xC9A2) pops the frame into cs:[4A..4E],
+  far-calls `[DGROUP:4BF0 + 4*AX]` (27 services), pushes the frame back, iret.
+  Neither the handler nor the services are reachable by call-graph analysis;
+  `lift_full.py` now adds them as function starts.
+- `lift_full.py` lifts the modules position-independently (`_CODE_SEG=None`, so
+  `cpu->cs` is the live load segment) as `tm_<file offset>` into
+  `gen/tmpl_000.c`: recursive descent from each module's entry (69 functions).
+  Needs the game folder (`SSO_GAME_DIR`; build.py sets it).
+- Runtime: reads from TEMPLATE.GRA are recorded (memory range -> file
+  offset); `recomp_dispatch` routes a call into such a range to
+  `recomp_dispatch_tm(file offset)` with CS = the call's segment. Misses there
+  go to `work/sso_tmisses.txt` and are fed back on the next lift.
+- Runtime: `int n` for a vector the game installed now runs the guest handler
+  (push FLAGS/CS/IP, dispatch, drop the frame since lifted `iret` doesn't).
+
+Verified: Game room -> Prize is Right puzzle draws (prizes, tags, calculator),
+answer 79 accepted, score 300 -> 600.
