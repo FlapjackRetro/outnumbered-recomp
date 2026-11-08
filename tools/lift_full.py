@@ -302,6 +302,17 @@ def jump_tables(data, hdr, insns, cs, lo, hi, io=None, infer=False):
 
 # Functions skipped by the lifter and supplied natively by the runtime
 # (same fn_XXXXX name, so callers and the dispatch table are unchanged).
+# Runtime hooks called at the entry of a lifted function (after its prologue).
+ENTRY_HOOKS = {}
+
+# Sound device choice. The game decides "Tandy" from one byte, DGROUP:[4C62h] = 21h
+# (BIOS F000:C000), and uses it for: the music bank (fn_01B29: MOCKET.DAT 15E0h Tandy
+# vs 15E1h speaker), the sound driver init (fn_01B81 -> fn_0C2F3(tandy)), the
+# keyboard handler (Tandy scan codes) and video detection. Only the two sound
+# decisions read the byte through sso_sound_machine_byte(), so EGA video and PC
+# keyboard stay while the music is the game's own Tandy 3-voice arrangement.
+SOUND_MACHINE_READS = ("fn_01B29", "fn_01B81")
+
 OVERRIDES = {
     # none yet: SSO.EXE has no 8087 emulator (no CD 34..3D sites)
 }
@@ -772,6 +783,14 @@ def main():
                 body = lifter.lift_function(name, insns, io, is_far=True)
                 body = body.replace("(CPU *cpu)\n{",
                                     f"(CPU *cpu)\n{{\n    cpu->cs = SEG_{cs:04X};", 1)
+                if name in SOUND_MACHINE_READS:
+                    n0 = body.count("mem_read8(cpu, cpu->ds, 0x4C62)")
+                    body = body.replace("mem_read8(cpu, cpu->ds, 0x4C62)", "sso_sound_machine_byte(cpu)")
+                    if n0 != 1:
+                        print(f"  WARNING: {name}: {n0} reads of [4C62h] (expected 1)")
+                if io in ENTRY_HOOKS:
+                    body = body.replace(f'RECOMP_ENTER("{name}");',
+                                        f'RECOMP_ENTER("{name}");\n    {ENTRY_HOOKS[io]}(cpu);', 1)
                 res["bodies"].append(body)
                 res["calls"] |= lifter.func_calls
                 res["lifted"] += 1
@@ -994,6 +1013,7 @@ void recomp_dump_misses(const char *path) {
 }
 /* 1 = dispatched, 0 = no function at that address */
 int recomp_module_dispatch(CPU *cpu, unsigned seg, unsigned off);
+uint8_t sso_sound_machine_byte(CPU *cpu);
 int recomp_dispatch_v(CPU *cpu, unsigned addr);
 int recomp_dispatch(CPU *cpu, unsigned seg, unsigned off) {
     unsigned addr = ((seg << 4) + off) & 0xFFFFF;

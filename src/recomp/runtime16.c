@@ -56,6 +56,22 @@ static char g_game_dir[260] = ".";
 static FILE *g_files[MAX_FILES];
 static int g_is_tmpl[MAX_FILES];                 /* handle reads TEMPLATE.GRA (puzzle code modules) */
 
+/* ---------- sound device ----------
+ * The game picks Tandy sound (music bank MOCKET.DAT 15E0h + SN76496 driver) when
+ * DGROUP:[4C62h] = 21h, the Tandy BIOS signature, which also selects Tandy video and
+ * keyboard handling. The lifter routes just the two sound decisions through here, so
+ * EGA video can be paired with either sound device. Default Tandy; --speaker for the
+ * PC speaker. */
+int sso_sound_device = 1;
+uint8_t sso_sound_machine_byte(CPU *cpu)
+{
+    uint8_t real = mem_read8(cpu, 0x13F3, 0x4C62);
+    static int said;
+    if (!said++) { fprintf(stderr, "sound: %s\n", sso_sound_device ? "Tandy 3-voice (SN76496)" : "PC speaker"); audio_set_tandy(sso_sound_device); }
+    if (sso_sound_device) return 0x21;
+    return real == 0x21 ? 0x00 : real;
+}
+
 /* ---------- puzzle modules loaded from TEMPLATE.GRA ----------
  * The game reads a code module from TEMPLATE.GRA into a free segment and far-calls it.
  * Each read is remembered (where it landed, which file offset it came from) so a call
@@ -359,12 +375,13 @@ void int_handler(CPU *cpu, int vec)
     case 0x02: case 0x03: break;                                     /* NMI / breakpoint: ignore */
     default:
         if (g_vec_seg[vec] != BIOS_SEG) {          /* a vector the game installed (INT 60h: the puzzle modules' call-back) */
-            uint16_t cs = cpu->cs;
+            uint16_t cs = cpu->cs, fl = cpu->flags;
             push16(cpu, cpu->flags); push16(cpu, cs); push16(cpu, 0xFFFF);
             cpu->flags &= (uint16_t)~FLAG_IF;
             int ok = recomp_dispatch(cpu, g_vec_seg[vec], g_vec_off[vec]);
             cpu->sp += 6;                          /* lifted iret returns without popping its frame */
             cpu->cs = cs;
+            cpu->flags = (uint16_t)((cpu->flags & ~FLAG_IF) | (fl & FLAG_IF));   /* iret restores IF */
             if (!ok) fprintf(stderr, "[INT %02X] handler %04X:%04X not lifted\n", vec, g_vec_seg[vec], g_vec_off[vec]);
             break;
         }
@@ -535,7 +552,14 @@ void recomp_tick(CPU *cpu)
       if (pat && now >= next) { static int k; char nm[300]; const char *ms = getenv("SSO_FRAMES_MS");
           snprintf(nm, sizeof nm, "%s%03d.ppm", pat, k++); ega_dump_ppm(nm); next = now + (ms ? (unsigned)atoi(ms) : 1000); } }
     audio_wav_feed();
+    { static int md = -1; static uint64_t t0; if (md < 0) { const char *e = getenv("SSO_MEMDUMP_MS"); md = e ? atoi(e) : 0; t0 = now; }   /* debug: SSO_MEMDUMP_MS=n dumps 1 MB to work/mem.bin once */
+      if (md > 0 && now - t0 >= (uint64_t)md) { md = 0; FILE *f = fopen("work/mem.bin", "wb"); if (f) { fwrite(cpu->mem, 1, 0x100000, f); fclose(f); fprintf(stderr, "[memdump] work/mem.bin\n"); } } }
     if (g_in_isr) return;
+    /* Like the CPU, take no interrupt while the guest has them disabled (cli): the game's
+     * sound code rewrites shared voice state under cli, and a timer ISR running the music
+     * player in the middle of that wrote voice registers for channels that do not exist.
+     * Ticks missed meanwhile are delivered at the next back-edge with IF set. */
+    if (!(cpu->flags & FLAG_IF)) return;
     /* PIT channel 0 at its default rate: 1193182 / 65536 = 18.2065 Hz (54.9254 ms). The ISR can only run
      * here, so when the guest spends a long time between loop back-edges ticks arrive late; run the
      * missed ones (a few at a time) so game time keeps pace with the wall clock. */

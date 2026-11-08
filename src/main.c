@@ -57,8 +57,20 @@ static int ends_with_exe(const char *s)
 
 int main(int argc, char **argv)
 {
+    {   /* sound device: --speaker / --tandy (or SSO_SOUND=speaker|tandy); strip from argv */
+        const char *e = getenv("SSO_SOUND");
+        if (e && (e[0] == 's' || e[0] == 'S' || e[0] == 'p' || e[0] == 'P')) sso_sound_device = 0;
+        int o = 1;
+        for (int i = 1; i < argc; i++) {
+            if (!strcmp(argv[i], "--speaker")) sso_sound_device = 0;
+            else if (!strcmp(argv[i], "--tandy")) sso_sound_device = 1;
+            else argv[o++] = argv[i];
+        }
+        argc = o; argv[argc] = NULL;
+    }
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        fprintf(stderr, "usage: %s [game-dir]\n       %s SSO.EXE [game-dir]\n", argv[0], argv[0]);
+        fprintf(stderr, "usage: %s [--speaker|--tandy] [game-dir]\n       %s [--speaker|--tandy] SSO.EXE [game-dir]\n"
+                        "  --tandy    Tandy 3-voice sound (default)\n  --speaker  PC speaker\n", argv[0], argv[0]);
         return 2;
     }
     if (argc > 1 && ends_with_exe(argv[1])) {

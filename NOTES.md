@@ -10,7 +10,7 @@
    finds a loop spinning on the timer, and compile the per-function debug hooks
    (RECOMP_TRACE / recomp_enter) out of release builds. Measure CPU use before and
    after at the title screen and in the halls. Game speed must not change.
-2. First Windows play-test (window, keyboard, sound).
+2. First Windows play-test (window, keyboard, sound: try both --tandy and --speaker).
 
 ## 2026-11-07 bring-up
 
@@ -106,3 +106,33 @@ TEMPLATE.GRA (file offset 0x1FC9) into 4F45:0000 and far-called it.
 
 Verified: Game room -> Prize is Right puzzle draws (prizes, tags, calculator),
 answer 79 accepted, score 300 -> 600.
+
+## Sound (2026-11-08)
+
+- EGA mode sound is the PC speaker (61h, PIT channel 2); already modelled.
+- The game also has a Tandy 1000 / PCjr path: TI SN76496 on port C0h (3 square
+  voices + noise). It is chosen from one byte, DGROUP:[4C62h] = 21h (Tandy BIOS
+  signature F000:C000, set by `fn_0CB1A`), which drives four decisions:
+  - `fn_01B29`: music bank in MOCKET.DAT: 15E0h at 0x2450 (Tandy, 4 voices with
+    volume envelopes, 150 `5D xx` set-envelope commands) vs 15E1h at 0x5AC8 (speaker).
+  - `fn_01B81` -> `fn_0C2F3(tandy)`: sound driver init; sets `[4356h]` (driver) and
+    `[4358h]` (voices: 4 Tandy, 1 speaker).
+  - `fn_0BA41`/`fn_0BA6F`: keyboard handler (Tandy scan codes) - must stay PC.
+  - `fn_0CB1A`/`fn_0CBD5`: video detection - must stay EGA.
+- `lift_full.py` SOUND_MACHINE_READS routes only the first two through
+  `sso_sound_machine_byte()` (21h with Tandy sound, the real byte otherwise).
+  Default Tandy; `--speaker` / `SSO_SOUND=speaker` for the PC speaker.
+- First attempt only overrode the driver init: the Tandy driver then played the
+  speaker bank, whose songs never set an envelope, so the envelope pointer stayed 0
+  and volumes were read from DGROUP:0004 ("Turbo-C - Copyright..."), e.g. 90h+'T'
+  = E4h = a noise-control write. That was the "two tracks at once" sound.
+- `audio.cpp`: SN76496 at 3.579545 MHz (freq = clock / 32N, 15-bit LFSR noise, 2 dB
+  steps), writes timestamped and applied at the exact sample like the speaker.
+  Tandy audio mux: port 61h bits 5-6 (00 = PIT tone, 11 = SN76496) gate which
+  source is heard.
+- Runtime: timer ticks are no longer delivered while the guest has IF clear
+  (like the CPU); INT 60h shim restores IF on return (as iret would).
+- Diagnostics: startup prints the SDL audio driver and output devices; the
+  window title shows the sound device, output level (snd N%) and frames/s the
+  device pulls (0 = device not running). `SSO_AUDIOLOG=1` logs speaker and chip
+  writes; `SSO_MEMDUMP_MS=n` writes guest memory to work/mem.bin once.

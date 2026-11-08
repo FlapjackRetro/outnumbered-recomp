@@ -11,6 +11,8 @@ void    audio_init(void);
 int     audio_port_out(uint16_t port, uint8_t v);          /* 1 = handled */
 int     audio_port_in(uint16_t port, uint8_t *v);          /* 1 = handled */
 void    audio_set_port61(uint8_t v);                       /* speaker gate/data bits */
+void    audio_set_tandy(int on);                             /* Tandy audio mux on port 61h bits 5-6 */
+int     audio_take_peak(unsigned long *rendered);              /* peak |sample| since last call */
 void    audio_render(int16_t *stereo, int frames, int rate);
 void    audio_wav_open(const char *path, int rate);
 void    audio_wav_feed(void);                              /* append audio for the host time elapsed */

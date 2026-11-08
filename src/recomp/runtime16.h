@@ -28,4 +28,7 @@ extern int sso_exit_code;
 extern volatile unsigned long g_stat_isrs, g_stat_calls;   /* timer ISRs run / recomp_tick calls so far */
 void sso_dump_frame(CPU *cpu, const char *ppm_path);
 
+/* sound device the game is told to use: 0 = PC speaker, 1 = Tandy 3-voice (SN76496) */
+extern int sso_sound_device;
+uint8_t sso_sound_machine_byte(CPU *cpu);   /* [4C62h] as seen by the sound bank choice and driver init */
 #endif

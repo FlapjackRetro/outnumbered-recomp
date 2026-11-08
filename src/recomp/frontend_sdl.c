@@ -112,7 +112,14 @@ int fe_run(void (*start_guest)(void), volatile int *guest_done)
         SDL_AudioSpec want, have; SDL_zero(want);
         want.freq = 48000; want.format = AUDIO_S16SYS; want.channels = 2; want.samples = 1024; want.callback = audio_cb;
         adev = SDL_OpenAudioDevice(NULL, 0, &want, &have, 0);
-        if (adev) { g_audio_rate = have.freq; SDL_PauseAudioDevice(adev, 0); }
+        if (adev) {
+            g_audio_rate = have.freq; SDL_PauseAudioDevice(adev, 0);
+            int nd = SDL_GetNumAudioDevices(0);
+            fprintf(stderr, "audio: driver %s, %d Hz, %d ch, %d-frame buffer, system default output (%d output device%s listed",
+                    SDL_GetCurrentAudioDriver(), have.freq, have.channels, have.samples, nd, nd == 1 ? "" : "s");
+            for (int k = 0; k < nd && k < 6; k++) fprintf(stderr, "%s%s", k ? "; " : ": ", SDL_GetAudioDeviceName(k, 0));
+            fprintf(stderr, ")\n");
+        }
         else fprintf(stderr, "SDL audio: %s (continuing without sound)\n", SDL_GetError());
     }
     SDL_Texture *tex = NULL; int tw = 0, th = 0;
@@ -162,9 +169,14 @@ int fe_run(void (*start_guest)(void), volatile int *guest_done)
         frames++;
         unsigned t = SDL_GetTicks();
         if (t - last_ms >= 1000) {                 /* diagnostics in the title bar */
-            char title[160]; unsigned long i = g_stat_isrs, c = g_stat_calls;
-            snprintf(title, sizeof title, "OutNumbered! [" __TIME__ "] timer %lu/s ticks %lu/s %u fps (isr total %lu, calls %lu)",
-                     (i - last_isr) * 1000 / (t - last_ms), (c - last_calls) * 1000 / (t - last_ms), frames * 1000 / (t - last_ms), i, c);
+            char title[200]; unsigned long i = g_stat_isrs, c = g_stat_calls, ar = 0;
+            static unsigned long last_ar;
+            int pk = audio_take_peak(&ar);
+            /* snd: output level 0-100 (0 = silent), and audio frames/s pulled by the device (0 = device not running) */
+            snprintf(title, sizeof title, "OutNumbered! [" __TIME__ "] %s snd %d%% @%lu/s | timer %lu/s ticks %lu/s %u fps",
+                     sso_sound_device ? "tandy" : "speaker", pk * 100 / 32767, (ar - last_ar) * 1000 / (t - last_ms),
+                     (i - last_isr) * 1000 / (t - last_ms), (c - last_calls) * 1000 / (t - last_ms), frames * 1000 / (t - last_ms));
+            last_ar = ar;
             SDL_SetWindowTitle(win, title); last_isr = i; last_calls = c; frames = 0; last_ms = t;
         }
     }

@@ -51,9 +51,13 @@ Manual Windows build from an MSYS2 MINGW64 shell works the same as Linux:
 ## Running
 
 ```
-sso [game-dir]            # finds SSO.EXE in game-dir (default: . then ..)
-sso SSO.EXE [game-dir]
+sso [--tandy|--speaker] [game-dir]     # finds SSO.EXE in game-dir (default: . then ..)
+sso [--tandy|--speaker] SSO.EXE [game-dir]
 ```
+
+Sound: `--tandy` (default) uses the game's own Tandy 1000 3-voice music driver
+(emulated TI SN76496) with the EGA graphics; `--speaker` is the original PC
+speaker.
 
 The original, still-packed `SSO.EXE` is fine: the loader undoes EXEPACK and
 checks the image against the one the build was lifted from.
@@ -64,7 +68,7 @@ saves (`USERS.DAT`, `HISCORE.DAT`) back into the game folder.
 Debug environment variables (all optional): `SSO_TRACE=1` (DOS/BIOS calls and
 dispatch misses), `SSO_SECONDS=n` (watchdog), `SSO_FRAME=out.ppm` (screen at
 exit), `SSO_FRAMES=prefix` + `SSO_FRAMES_MS`, `SSO_KEYSEQ="enter@3000,up@5000"`
-and `SSO_RAWSEQ="1C@3000,9C@3100"` (scripted input), `SSO_AUDIO=speaker`,
+and `SSO_RAWSEQ="1C@3000,9C@3100"` (scripted input), `SSO_SOUND=speaker|tandy`,
 `SSO_WAV=out.wav`.
 
 ## Development loop
