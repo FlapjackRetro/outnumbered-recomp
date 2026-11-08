@@ -1,5 +1,17 @@
 # Notes
 
+## TODO (next session, 2026-11-08)
+
+1. **High CPU use: fans spin up while playing.** The game busy-waits like any DOS
+   program (INT 16h/01h "key ready?" polls, video-status port polls, loops on its
+   timer counter), and the lifted code spins at host speed, so one core sits near
+   100%. Fix: sleep ~1 ms on repeated empty INT 16h/01h polls, pace video-status
+   (3DAh) polls to a 60 Hz frame, sleep until the next PIT tick when RECOMP_TICK
+   finds a loop spinning on the timer, and compile the per-function debug hooks
+   (RECOMP_TRACE / recomp_enter) out of release builds. Measure CPU use before and
+   after at the title screen and in the halls. Game speed must not change.
+2. First Windows play-test (window, keyboard, sound).
+
 ## 2026-11-07 bring-up
 
 ### The binary
