@@ -56,7 +56,7 @@ sso [options] SSO.EXE [game-dir]
 
   --tandy      Tandy 3-voice sound (default)
   --speaker    PC speaker
-  --mhz=N      guest speed cap, million instructions/s (default 100, 0 = unlimited)
+  --mhz=N      guest speed cap, million instructions/s (default 25, 0 = unlimited)
 ```
 
 Sound: `--tandy` (default) uses the game's own Tandy 1000 3-voice music driver

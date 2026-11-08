@@ -3,7 +3,7 @@
 ## TODO (next session, 2026-11-08)
 
 1. **High CPU use: fans spin up while playing.** *(Partly done 2026-11-08: guest
-   capped at 100 MHz-equivalent, 100% -> ~15% of a core at the title screen. Still
+   capped at 25 MHz-equivalent (486DX-33 class), 100% -> ~4% of a core at the title screen. Still
    to do: compile out per-function debug hooks; idle-poll sleeps if still needed.)* The game busy-waits like any DOS
    program (INT 16h/01h "key ready?" polls, video-status port polls, loops on its
    timer counter), and the lifted code spins at host speed, so one core sits near
@@ -141,7 +141,7 @@ answer 79 accepted, score 300 -> 600.
 
 ## Guest speed cap (2026-11-08)
 
-- `--mhz=N` / `SSO_MHZ=N` (default 100, 0 = unlimited): the guest runs at most N
+- `--mhz=N` / `SSO_MHZ=N` (default 25 since play-testing felt identical; 0 = unlimited): the guest runs at most N
   million original x86 instructions per second; ahead of the wall clock, the
   runtime sleeps (`pace_guest()` in recomp_tick, sleeps when >2 ms ahead, resets
   its base when >50 ms behind so stalls are not "caught up").
@@ -150,6 +150,6 @@ answer 79 accepted, score 300 -> 600.
   entry `RECOMP_COUNT(len)`. An estimate (early returns overcount, calls into
   straight-line code count once per call), not cycles.
 - Measured at the title screen over 15 s: uncapped ~740 M instr/s at 100% of a
-  core; capped 100.0 M instr/s at ~15% of a core; identical frames. Game timing
+  core; capped at 100: ~15% of a core; at 25: ~4%; at 10: ~2%; identical frames. Game timing
   is driven by the timer interrupt, so play speed is unchanged.
 - The window title shows the measured guest speed (guest N MHz).

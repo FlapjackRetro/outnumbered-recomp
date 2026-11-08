@@ -184,7 +184,7 @@ static uint64_t host_us(void)
  * when it gets ahead of the wall clock it sleeps. 0 = unlimited. Game timing comes from
  * the timer interrupt either way; this only stops idle/polling loops from spinning a
  * host core flat out. */
-unsigned sso_mhz = 100;
+unsigned sso_mhz = 25;
 uint64_t g_recomp_icount;
 static void pace_guest(void)
 {

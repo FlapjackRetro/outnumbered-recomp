@@ -73,7 +73,7 @@ int main(int argc, char **argv)
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
         fprintf(stderr, "usage: %s [options] [game-dir]\n       %s [options] SSO.EXE [game-dir]\n"
                         "  --tandy    Tandy 3-voice sound (default)\n  --speaker  PC speaker\n"
-                        "  --mhz=N    guest speed cap, million instructions/s (default 100, 0 = unlimited)\n", argv[0], argv[0]);
+                        "  --mhz=N    guest speed cap, million instructions/s (default 25, 0 = unlimited)\n", argv[0], argv[0]);
         return 2;
     }
     if (argc > 1 && ends_with_exe(argv[1])) {
