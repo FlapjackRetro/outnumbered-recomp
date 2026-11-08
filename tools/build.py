@@ -40,6 +40,33 @@ def find_exe(game):
     sys.exit("SSO.EXE not found; pass --game <folder with SSO.EXE and the .GRA/.DAT files>")
 
 
+# The copy this project was lifted from (title screen: "(c)1990 The Learning Company V 1.02").
+KNOWN = {
+    "SSO.EXE": "bce6846b816d1aad7fdd76d15d2047afbc3658cb4f98c0623bcba5447ac446c2",
+    "TEMPLATE.GRA": "117750cd2b9249e837b52f1cc903d51da96aef6f726f9c42bd22e7c63539b000",
+}
+
+
+def check_versions(game_dir):
+    import hashlib
+    bad = []
+    for name, want in KNOWN.items():
+        path = next((os.path.join(game_dir, n) for n in os.listdir(game_dir) if n.upper() == name), None)
+        if not path:
+            bad.append(f"{name}: missing")
+            continue
+        got = hashlib.sha256(open(path, "rb").read()).hexdigest()
+        if got != want:
+            bad.append(f"{name}: sha256 {got}\n      expected {want}")
+    if bad:
+        print("WARNING: this is not the OutNumbered! v1.02 the recomp was made from:")
+        for b in bad:
+            print("  " + b)
+        print("The build continues, but expect crashes or wrong behaviour.")
+    else:
+        print("game files: OutNumbered! v1.02 (SSO.EXE and TEMPLATE.GRA match)")
+
+
 def pcrecomp_home():
     env = os.environ.get("PCRECOMP_HOME") or os.environ.get("PCRECOMP")
     if env and os.path.isdir(os.path.join(env, "tools", "lift")):
@@ -62,6 +89,7 @@ def main():
 
     exe = find_exe(a.game)
     print(f"game: {exe}")
+    check_versions(os.path.dirname(exe))
     pc = pcrecomp_home()
     os.environ["PCRECOMP_HOME"] = pc
 

@@ -3,8 +3,9 @@
 ## TODO (next session, 2026-11-08)
 
 1. **High CPU use: fans spin up while playing.** *(Partly done 2026-11-08: guest
-   capped at 25 MHz-equivalent (486DX-33 class), 100% -> ~4% of a core at the title screen. Still
-   to do: compile out per-function debug hooks; idle-poll sleeps if still needed.)* The game busy-waits like any DOS
+   capped at 25 MHz-equivalent (486DX-33 class), 100% -> ~4% of a core at the title screen.
+   Per-function trace hook now off by default (-DSSO_TRACE=ON to debug): 4.9% -> 4.4%
+   of a core at the cap, +8% uncapped throughput. Done; no further tuning needed.)* The game busy-waits like any DOS
    program (INT 16h/01h "key ready?" polls, video-status port polls, loops on its
    timer counter), and the lifted code spins at host speed, so one core sits near
    100%. Fix: sleep ~1 ms on repeated empty INT 16h/01h polls, pace video-status
@@ -12,7 +13,8 @@
    finds a loop spinning on the timer, and compile the per-function debug hooks
    (RECOMP_TRACE / recomp_enter) out of release builds. Measure CPU use before and
    after at the title screen and in the halls. Game speed must not change.
-2. First Windows play-test (window, keyboard, sound: try both --tandy and --speaker).
+2. ~~First Windows play-test~~ Done 2026-11-08: window, keyboard, puzzles, Tandy and
+   speaker sound, 25 MHz cap all work on Windows (built with install.bat / MSYS2).
 
 ## 2026-11-07 bring-up
 

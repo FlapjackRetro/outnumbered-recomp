@@ -24,6 +24,25 @@ and must never be committed (see `.gitignore`).
 | Data | `MOCKET.DAT`, `*.GRA`, `HELP.DAT`; saves in `USERS.DAT`, `HISCORE.DAT` |
 | Pipeline | `unexepack` -> `analyze` + `largemodel16` -> `lift16` -> runtime |
 
+## Supported version
+
+Only this release is supported (the title screen reads **© 1990 The Learning
+Company V 1.02**). The lifted code matches one exact executable, so check your
+copy before building:
+
+| File | Size | SHA-256 | MD5 | CRC32 |
+|---|---|---|---|---|
+| `SSO.EXE` | 107,277 | `bce6846b816d1aad7fdd76d15d2047afbc3658cb4f98c0623bcba5447ac446c2` | `c637a8f9eba7af5c6a77e2f4d00e5b3c` | `69D34425` |
+| `TEMPLATE.GRA` | 109,433 | `117750cd2b9249e837b52f1cc903d51da96aef6f726f9c42bd22e7c63539b000` | | |
+| `MOCKET.DAT` | 36,140 | `324abae88ed2639c36ab3c25af1e13f34d1a3064737beb18e5a0f7388657b416` | | |
+
+`SSO.EXE` is EXEPACK-compressed; `TEMPLATE.GRA` holds the puzzle-picture code
+the build also lifts; `MOCKET.DAT` holds the music. `tools/build.py` checks
+`SSO.EXE` and `TEMPLATE.GRA` and warns on a mismatch. `USERS.DAT` and
+`HISCORE.DAT` are saves and differ between copies.
+
+Linux: `sha256sum SSO.EXE` · Windows: `Get-FileHash SSO.EXE` (PowerShell).
+
 ## Build
 
 You need your own copy of the game. Put this repo in a `recomp` folder inside
