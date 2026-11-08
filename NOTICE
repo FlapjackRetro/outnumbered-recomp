@@ -1,0 +1,33 @@
+OutNumbered! static recompilation - notices
+
+THE GAME
+  Super Solvers: OutNumbered! (1990) is the copyright of The Learning Company.
+  All rights in the game, including its code, artwork, music, sound and data
+  files (SSO.EXE, *.GRA, *.DAT, SSO.CGA, SSO.TGA, etc.), belong to its owner.
+  "Super Solvers", "OutNumbered!" and "The Learning Company" are the property
+  of their respective owners.
+  This project is an unofficial, fan-made preservation/interoperability effort.
+  It is not affiliated with or endorsed by The Learning Company or any rights
+  holder. No game files are included in this repository; you must supply your
+  own legitimately obtained copy. The installer generates the C code locally
+  from your own SSO.EXE, and that generated code is not distributed.
+
+THIRD-PARTY SOFTWARE
+  operation-neptune-recomp (FlapjackRetro) - MIT
+    The runtime (DOS/BIOS/EGA/audio/SDL2 front end) and lift driver this
+    project was forked from.
+
+  pcrecomp (https://github.com/sp00nznet/pcrecomp) - MIT, Copyright (c) 2026 sp00nz
+    The disassembler, analyzer and 16-bit lifter used to translate SSO.EXE
+    (fetched by tools/build.py, not bundled). The CPU state code in
+    src/recomp/cpu.c / cpu.h is derived from its recomp16 runtime, and
+    src/recomp/exepack.c is a port of its tools/drm/unexepack.py.
+
+  ymfm (third_party/ymfm) - BSD 3-Clause, Copyright (c) 2021, Aaron Giles
+    Yamaha OPL2 (AdLib) FM synthesis emulation. Licence: third_party/ymfm/LICENSE
+
+  SDL2 (https://libsdl.org) - zlib licence, Copyright (c) 1997-2025 Sam Lantinga
+    Window, input and audio output. Linked at build time, not bundled.
+
+  MSYS2 / MinGW-w64 / GCC / CMake / Ninja / Python - used as build tools and
+    installed by install.ps1 (Windows) under their own licences; not bundled.

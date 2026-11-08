@@ -1,0 +1,21 @@
+# Game material and lifted output never go in git (see pcrecomp docs/PUBLISHING.md)
+*.EXE
+*.exe
+*.DAT
+*.dat
+*.DRV
+*.BAT
+*.bin
+gen/
+build/
+src/gen/
+__pycache__/
+build/
+build-dbg/
+*.ppm
+.pcrecomp/
+play.bat
+build-*/
+work/*.exe
+*.png
+*.wav
