@@ -173,10 +173,12 @@ int fe_run(void (*start_guest)(void), volatile int *guest_done)
             static unsigned long last_ar;
             int pk = audio_take_peak(&ar);
             /* snd: output level 0-100 (0 = silent), and audio frames/s pulled by the device (0 = device not running) */
-            snprintf(title, sizeof title, "OutNumbered! [" __TIME__ "] %s snd %d%% @%lu/s | timer %lu/s ticks %lu/s %u fps",
+            static uint64_t last_ic; uint64_t ic = g_recomp_icount;
+            snprintf(title, sizeof title, "OutNumbered! [" __TIME__ "] guest %.1f MHz | %s snd %d%% @%lu/s | timer %lu/s ticks %lu/s %u fps",
+                     (double)(ic - last_ic) / 1000.0 / (t - last_ms),
                      sso_sound_device ? "tandy" : "speaker", pk * 100 / 32767, (ar - last_ar) * 1000 / (t - last_ms),
                      (i - last_isr) * 1000 / (t - last_ms), (c - last_calls) * 1000 / (t - last_ms), frames * 1000 / (t - last_ms));
-            last_ar = ar;
+            last_ar = ar; last_ic = ic;
             SDL_SetWindowTitle(win, title); last_isr = i; last_calls = c; frames = 0; last_ms = t;
         }
     }

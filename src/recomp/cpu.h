@@ -620,8 +620,17 @@ static inline void cpu_init(CPU *cpu)
 extern int g_recomp_tick_budget;
 void recomp_tick(CPU *cpu);
 #define RECOMP_TICK(cpu) do { if (--g_recomp_tick_budget <= 0) recomp_tick(cpu); } while (0)
+/* Guest instruction count, for pacing the guest to a fixed speed (--mhz). The
+ * lifter adds each loop body's instruction count at its back-edge and each
+ * function's length at its entry: an estimate of the original x86 instructions
+ * executed, not a cycle count. */
+extern uint64_t g_recomp_icount;
+#define RECOMP_TICKN(cpu, n) do { g_recomp_icount += (n); if (--g_recomp_tick_budget <= 0) recomp_tick(cpu); } while (0)
+#define RECOMP_COUNT(n) (g_recomp_icount += (n))
 #else
 #define RECOMP_TICK(cpu) ((void)0)
+#define RECOMP_TICKN(cpu, n) ((void)0)
+#define RECOMP_COUNT(n) ((void)0)
 #endif
 
 /* ---------- Entry trace ----------

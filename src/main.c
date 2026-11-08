@@ -59,18 +59,21 @@ int main(int argc, char **argv)
 {
     {   /* sound device: --speaker / --tandy (or SSO_SOUND=speaker|tandy); strip from argv */
         const char *e = getenv("SSO_SOUND");
+        const char *mz = getenv("SSO_MHZ"); if (mz) sso_mhz = (unsigned)atoi(mz);
         if (e && (e[0] == 's' || e[0] == 'S' || e[0] == 'p' || e[0] == 'P')) sso_sound_device = 0;
         int o = 1;
         for (int i = 1; i < argc; i++) {
             if (!strcmp(argv[i], "--speaker")) sso_sound_device = 0;
             else if (!strcmp(argv[i], "--tandy")) sso_sound_device = 1;
+            else if (!strncmp(argv[i], "--mhz=", 6)) sso_mhz = (unsigned)atoi(argv[i] + 6);
             else argv[o++] = argv[i];
         }
         argc = o; argv[argc] = NULL;
     }
     if (argc > 1 && (!strcmp(argv[1], "-h") || !strcmp(argv[1], "--help"))) {
-        fprintf(stderr, "usage: %s [--speaker|--tandy] [game-dir]\n       %s [--speaker|--tandy] SSO.EXE [game-dir]\n"
-                        "  --tandy    Tandy 3-voice sound (default)\n  --speaker  PC speaker\n", argv[0], argv[0]);
+        fprintf(stderr, "usage: %s [options] [game-dir]\n       %s [options] SSO.EXE [game-dir]\n"
+                        "  --tandy    Tandy 3-voice sound (default)\n  --speaker  PC speaker\n"
+                        "  --mhz=N    guest speed cap, million instructions/s (default 100, 0 = unlimited)\n", argv[0], argv[0]);
         return 2;
     }
     if (argc > 1 && ends_with_exe(argv[1])) {

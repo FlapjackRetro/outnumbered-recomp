@@ -173,6 +173,33 @@ static uint64_t host_ms(void)     /* 64-bit: unsigned long is 32 bits on Windows
     struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
     return (uint64_t)t.tv_sec * 1000u + (uint64_t)t.tv_nsec / 1000000u;
 }
+static uint64_t host_us(void)
+{
+    struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t);
+    return (uint64_t)t.tv_sec * 1000000u + (uint64_t)t.tv_nsec / 1000u;
+}
+
+/* ---------- guest speed ----------
+ * The guest runs at most sso_mhz million (estimated) original instructions per second;
+ * when it gets ahead of the wall clock it sleeps. 0 = unlimited. Game timing comes from
+ * the timer interrupt either way; this only stops idle/polling loops from spinning a
+ * host core flat out. */
+unsigned sso_mhz = 100;
+uint64_t g_recomp_icount;
+static void pace_guest(void)
+{
+    static uint64_t base_us, base_ic;
+    if (!sso_mhz) return;
+    uint64_t now = host_us();
+    if (!base_us) { base_us = now; base_ic = g_recomp_icount; return; }
+    double due_us = (double)(g_recomp_icount - base_ic) / sso_mhz;     /* when this many instructions are due */
+    double ahead = due_us - (double)(now - base_us);
+    if (ahead > 2000.0) {                                              /* sleep off anything over 2 ms */
+        usleep((useconds_t)(ahead > 50000.0 ? 50000.0 : ahead));
+    } else if (ahead < -50000.0) {                                     /* behind (host stalled or slow code): don't bank credit */
+        base_us = now; base_ic = g_recomp_icount;
+    }
+}
 static unsigned long bios_ticks(void) { return (unsigned long)(host_ms() * 182u / 10000u); }   /* 18.2 Hz */
 
 /* ---------- INT 21h ---------- */
@@ -552,6 +579,7 @@ void recomp_tick(CPU *cpu)
       if (pat && now >= next) { static int k; char nm[300]; const char *ms = getenv("SSO_FRAMES_MS");
           snprintf(nm, sizeof nm, "%s%03d.ppm", pat, k++); ega_dump_ppm(nm); next = now + (ms ? (unsigned)atoi(ms) : 1000); } }
     audio_wav_feed();
+    pace_guest();
     { static int md = -1; static uint64_t t0; if (md < 0) { const char *e = getenv("SSO_MEMDUMP_MS"); md = e ? atoi(e) : 0; t0 = now; }   /* debug: SSO_MEMDUMP_MS=n dumps 1 MB to work/mem.bin once */
       if (md > 0 && now - t0 >= (uint64_t)md) { md = 0; FILE *f = fopen("work/mem.bin", "wb"); if (f) { fwrite(cpu->mem, 1, 0x100000, f); fclose(f); fprintf(stderr, "[memdump] work/mem.bin\n"); } } }
     if (g_in_isr) return;
@@ -660,9 +688,10 @@ static void on_usr1(int sig)
 #endif
 static void watchdog_report(void)
 {
+
     audio_wav_close();
     fprintf(stderr, "\n[watchdog] time limit reached: cs=%04X ds=%04X ss:sp=%04X:%04X, %u DOS calls\n",
-            g_cpu->cs, g_cpu->ds, g_cpu->ss, g_cpu->sp, g_dos_calls);
+            g_cpu->cs, g_cpu->ds, g_cpu->ss, g_cpu->sp, g_dos_calls); fprintf(stderr, "[speed] %.1f M guest instructions\n", (double)g_recomp_icount / 1e6);
     recomp_dump_misses("work/sso_misses.txt"); tmiss_dump("work/sso_tmisses.txt");
     { const char *o = getenv("SSO_FRAME"); if (o) ega_dump_ppm(o); }
     if (getenv("SSO_TEXT")) for (int r = 0; r < 25; r++) { char ln[81]; for (int c = 0; c < 80; c++) { uint8_t ch = g_cpu->mem[0xB8000 + (r * 80 + c) * 2]; ln[c] = ch >= 32 && ch < 127 ? (char)ch : ' '; } ln[80] = 0; fprintf(stderr, "|%s\n", ln); }

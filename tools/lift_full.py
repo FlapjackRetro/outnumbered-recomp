@@ -313,6 +313,20 @@ ENTRY_HOOKS = {}
 # keyboard stay while the music is the game's own Tandy 3-voice arrangement.
 SOUND_MACHINE_READS = ("fn_01B29", "fn_01B81")
 
+# Guest speed: count the original instructions. Each loop back-edge adds its body's
+# instruction count (RECOMP_TICKN); each function entry adds the function's length.
+_orig_lift_function = Lifter.lift_function
+def _lift_function_counting(self, name, insns, *a, **k):
+    self._cur_insns = insns
+    body = _orig_lift_function(self, name, insns, *a, **k)
+    return body.replace("(CPU *cpu)\n{", f"(CPU *cpu)\n{{\n    RECOMP_COUNT({len(insns)});", 1)
+def _tick_back_edge_counting(self, inst, target):
+    if target <= inst.address:
+        n = sum(1 for x in getattr(self, "_cur_insns", ()) if target <= x.address <= inst.address) or 1
+        self._emit(f"RECOMP_TICKN(cpu, {n});")
+Lifter.lift_function = _lift_function_counting
+Lifter._tick_back_edge = _tick_back_edge_counting
+
 OVERRIDES = {
     # none yet: SSO.EXE has no 8087 emulator (no CD 34..3D sites)
 }

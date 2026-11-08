@@ -30,5 +30,7 @@ void sso_dump_frame(CPU *cpu, const char *ppm_path);
 
 /* sound device the game is told to use: 0 = PC speaker, 1 = Tandy 3-voice (SN76496) */
 extern int sso_sound_device;
+/* guest speed cap in millions of instructions per second (0 = unlimited) */
+extern unsigned sso_mhz;
 uint8_t sso_sound_machine_byte(CPU *cpu);   /* [4C62h] as seen by the sound bank choice and driver init */
 #endif
